@@ -12,15 +12,18 @@ import argparse
 import os
 import random
 import sys
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from src.run_logger import JsonlRunLogger
 from src.stubs import StubAdapter, StubPlayerProxy
+from src.player_proxy import ModelCheckpointProxy
 
 
 def run_stub_episode(
-    episode_idx: int, adapter, proxy, logger, use_real_env: bool
+    episode_idx: int, adapter, proxy, logger, use_real_env: bool,
+    session_dir: str | None = None,
 ) -> None:
     """Run one episode and log results."""
     difficulty = adapter.choose_difficulty()
@@ -41,6 +44,9 @@ def run_stub_episode(
             step_count += 1
 
         raw_stats = env.get_episode_stats()
+        if session_dir is not None:
+            session_id = uuid.uuid4().hex[:12]
+            env.get_session_result(session_id, episode_idx=episode_idx).save(session_dir)
         env.close()
     else:
         raw_stats = {
@@ -94,16 +100,22 @@ def main():
     args = parser.parse_args()
 
     adapter = StubAdapter(bot_skill=3, num_bots=2)
-    proxy = StubPlayerProxy("stub_random")
+    proxy = ModelCheckpointProxy("agents/deathmatch_shotgun.pth")
     logger = JsonlRunLogger("stub_run")
+
+    # Session Parquet files go in a directory named after the run log (sans extension)
+    session_dir = os.path.splitext(logger.filepath)[0] if args.real_env else None
 
     print("\n=== Stub End-to-End Run ===")
     print(f"Episodes: {args.episodes}")
     print(f"Real env: {args.real_env}")
-    print(f"Log file: {logger.filepath}\n")
+    print(f"Log file: {logger.filepath}")
+    if session_dir:
+        print(f"Sessions: {session_dir}/")
+    print()
 
     for ep in range(args.episodes):
-        run_stub_episode(ep, adapter, proxy, logger, args.real_env)
+        run_stub_episode(ep, adapter, proxy, logger, args.real_env, session_dir)
 
     logger.close()
     print(f"\n=== Complete. Log written to {logger.filepath} ===")

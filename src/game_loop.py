@@ -8,16 +8,19 @@ observes episode statistics and adjusts difficulty for the next episode.
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import vizdoom as vzd
 
 from src.actuator import DifficultyActuator
 from src.baselines import BotBaselines
-from src.collector import EpisodeCollector, GAME_VARS
+from src.collector import GAME_VARS, stats_from_df
 from src.dungeon_master import DungeonMasterAgent
 from src.state_estimator import PlayerStateEstimator
+from vizdoom_tracker.recorder import GameVariableRecorder
+from vizdoom_tracker.session import SessionMetadata, SessionResult
+from vizdoom_tracker.variables import DEATHMATCH_VARS
 
 
 class DDAPipeline:
@@ -70,8 +73,7 @@ class DDAPipeline:
         self.game.init()
 
         self.actuator = DifficultyActuator(self.game, initial_skill)
-        self.collector = EpisodeCollector(
-            self.game, self.scenario_name, initial_skill)
+        self.recorder = GameVariableRecorder(DEATHMATCH_VARS)
 
         # ---- Session state ----
         self._session_log: list[dict] = []
@@ -116,8 +118,7 @@ class DDAPipeline:
             Path(self.record_dir).mkdir(parents=True, exist_ok=True)
             rec_path = os.path.join(self.record_dir, f"ep{ep_idx:04d}.lmp")
 
-        self.collector.skill = self.actuator.current_skill
-        self.collector.reset()
+        self.recorder.reset()
 
         if rec_path:
             self.game.new_episode(rec_path)
@@ -157,7 +158,7 @@ class DDAPipeline:
                 t0 = time.time()
                 # pumps SDL events; SPECTATOR ignores the action
                 self.game.advance_action(1)
-                self.collector.step()
+                self.recorder.record(self.game)
                 elapsed = time.time() - t0
                 sleep_for = tic_duration - elapsed
                 if sleep_for > 0:
@@ -165,15 +166,32 @@ class DDAPipeline:
 
             # Mid-episode dominance check (only before 60s mark)
             if not mid_ep_bot_added:
-                w = self.collector.get_episode_stats()
+                w = stats_from_df(self.recorder.to_dataframe(), self.recorder.episode_tic,
+                                  self.actuator.current_skill, self.scenario_name)
                 if self.actuator.check_mid_episode_dominance(w):
                     self.game.send_game_command("addbot")
                     self.actuator.num_bots += 1
                     mid_ep_bot_added = True
 
         t_end = time.time()
-        episode_stats = self.collector.save(self._session_dir, ep_idx)
+        df = self.recorder.to_dataframe()
+        episode_stats = stats_from_df(
+            df, self.recorder.episode_tic, self.actuator.current_skill, self.scenario_name)
         episode_stats["wall_time"] = t_end - t_start
+
+        meta = SessionMetadata(
+            session_id=f"ep{ep_idx:04d}",
+            start_utc=datetime.now(timezone.utc).isoformat(),
+            scenario=self.scenario_name,
+            num_bots=self.actuator.num_bots,
+            episode_timeout_tics=self.recorder.episode_tic,
+            sample_interval_tics=self.recorder._sample_every,
+            tic_rate=35,
+            variables=[v.name for v in DEATHMATCH_VARS],
+            total_tics=self.recorder.episode_tic,
+            total_samples=self.recorder.num_samples,
+        )
+        SessionResult(df=df, metadata=meta).save(self._session_dir)
 
         # DM decision
         perf_obs, trend_obs = self.estimator.estimate(
@@ -243,8 +261,7 @@ class DDAPipeline:
         """
         self.game.set_doom_skill(skill)
         self.actuator.current_skill = skill
-        self.collector.skill = skill
-        self.collector.reset()
+        self.recorder.reset()
 
         if record_path:
             self.game.new_episode(record_path)
