@@ -57,3 +57,38 @@ class FixedAdapter(Adapter):
 
     def get_belief(self) -> dict | None:
         return None
+
+
+class RuleBasedAdapter(Adapter):
+    """Rule-based adapter that adjusts bot difficulty from discrete performance bins."""
+
+    def __init__(
+        self,
+        bot_skill: int = 3,
+        num_bots: int = 2,
+        low_perf_threshold: int = 0,
+        high_perf_threshold: int = 2,
+    ):
+        self._bot_skill = max(1, min(5, bot_skill))
+        self._num_bots = num_bots
+        self._low_perf_threshold = low_perf_threshold
+        self._high_perf_threshold = high_perf_threshold
+        self._last_perf = 1
+
+    def choose_difficulty(self) -> dict:
+        return {"bot_skill": self._bot_skill, "num_bots": self._num_bots}
+
+    def update(self, obs_aif: dict) -> None:
+        perf = int(obs_aif.get("performance", 1))
+        self._last_perf = perf
+
+        if perf <= self._low_perf_threshold:
+            self._bot_skill = max(1, self._bot_skill - 1)
+        elif perf >= self._high_perf_threshold:
+            self._bot_skill = min(5, self._bot_skill + 1)
+
+    def get_belief(self) -> dict | None:
+        return {
+            "bot_skill": self._bot_skill,
+            "performance_bin": self._last_perf,
+        }

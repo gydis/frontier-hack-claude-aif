@@ -7,14 +7,14 @@ Usage:
     micromamba run -n doom python scripts/collect_baselines.py --scenario deathmatch --episodes 10
 """
 
+from src.collector import BotRolloutRunner
+import vizdoom as vzd
 import argparse
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import vizdoom as vzd
-from src.collector import BotRolloutRunner
 
 SCENARIO_CONFIGS = {
     "deathmatch":     "config/dda_deathmatch.cfg",
@@ -25,11 +25,16 @@ SCENARIO_CONFIGS = {
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", default="deathmatch", choices=list(SCENARIO_CONFIGS))
-    parser.add_argument("--episodes", type=int, default=10, help="Episodes per skill level")
-    parser.add_argument("--bots", type=int, default=3, help="Number of bots to add")
-    parser.add_argument("--out", default="data/baselines", help="Output directory")
-    parser.add_argument("--visible", action="store_true", help="Show game window")
+    parser.add_argument("--scenario", default="deathmatch",
+                        choices=list(SCENARIO_CONFIGS))
+    parser.add_argument("--episodes", type=int, default=10,
+                        help="Episodes per skill level")
+    parser.add_argument("--bots", type=int, default=3,
+                        help="Number of bots to add")
+    parser.add_argument("--out", default="data/baselines",
+                        help="Output directory")
+    parser.add_argument("--visible", action="store_true",
+                        help="Show game window")
     args = parser.parse_args()
 
     cfg_path = SCENARIO_CONFIGS[args.scenario]
@@ -38,7 +43,8 @@ def main():
         sys.exit(1)
 
     out_dir = os.path.join(args.out, args.scenario)
-    print(f"Collecting {args.episodes} episodes × 5 skill levels for '{args.scenario}'")
+    print(
+        f"Collecting {args.episodes} episodes × 5 skill levels for '{args.scenario}'")
     print(f"Output: {out_dir}")
     print()
 
@@ -55,7 +61,10 @@ def main():
         kdrs = [e["kdr"] for e in eps]
         print(f"  Skill {skill}: avg KDR = {sum(kdrs)/len(kdrs):.2f}")
 
-    print(f"\nNow run: python scripts/fit_baselines.py --scenario {args.scenario}")
+    print(
+        f"\nNow run: python scripts/fit_baselines.py --scenario {args.scenario}")
+    print(
+        f"Or evaluate proxies: python scripts/evaluate_proxies.py --scenario {args.scenario} --proxy builtin")
 
 
 if __name__ == "__main__":
