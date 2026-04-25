@@ -57,7 +57,8 @@ class DDAPipeline:
         self.game.load_config(scenario_cfg)
         # Resolve WAD path against the installed vizdoom scenarios directory
         wad_name = os.path.basename(self.game.get_doom_scenario_path())
-        self.game.set_doom_scenario_path(os.path.join(vzd.scenarios_path, wad_name))
+        self.game.set_doom_scenario_path(
+            os.path.join(vzd.scenarios_path, wad_name))
         self.game.set_window_visible(window_visible)
         # SPECTATOR: human's keyboard drives the player; code actions are ignored.
         # advance_action(1) pumps SDL events (keeps window responsive) and steps the sim.
@@ -69,7 +70,8 @@ class DDAPipeline:
         self.game.init()
 
         self.actuator = DifficultyActuator(self.game, initial_skill)
-        self.collector = EpisodeCollector(self.game, self.scenario_name, initial_skill)
+        self.collector = EpisodeCollector(
+            self.game, self.scenario_name, initial_skill)
 
         # ---- Session state ----
         self._session_log: list[dict] = []
@@ -89,9 +91,11 @@ class DDAPipeline:
         Path(self._session_dir).mkdir(parents=True, exist_ok=True)
 
         print(f"\n=== DDA Session starting — {num_episodes} episodes ===")
-        print(f"Scenario: {self.scenario_name}  |  Initial skill: {self.initial_skill}")
+        print(
+            f"Scenario: {self.scenario_name}  |  Initial skill: {self.initial_skill}")
         if self.baselines.is_fallback():
-            print("WARNING: using fallback baselines — run collect_baselines.py for better estimates")
+            print(
+                "WARNING: using fallback baselines — run collect_baselines.py for better estimates")
         print()
 
         for ep in range(num_episodes):
@@ -122,7 +126,8 @@ class DDAPipeline:
 
         # Add any pending bots from the DM's ADD_BOT action
         if ep_idx > 0:
-            self.actuator.add_pending_bots(self._last_action if hasattr(self, "_last_action") else 1)
+            self.actuator.add_pending_bots(
+                self._last_action if hasattr(self, "_last_action") else 1)
 
         t_start = time.time()
         mid_ep_bot_added = False
@@ -135,7 +140,8 @@ class DDAPipeline:
             is_dead = self.game.is_player_dead()
             if not is_dead:
                 try:
-                    is_dead = bool(self.game.get_game_variable(vzd.GameVariable.DEAD))
+                    is_dead = bool(self.game.get_game_variable(
+                        vzd.GameVariable.DEAD))
                 except Exception:
                     pass
 
@@ -149,7 +155,8 @@ class DDAPipeline:
             else:
                 _queued_respawn = False
                 t0 = time.time()
-                self.game.advance_action(1)   # pumps SDL events; SPECTATOR ignores the action
+                # pumps SDL events; SPECTATOR ignores the action
+                self.game.advance_action(1)
                 self.collector.step()
                 elapsed = time.time() - t0
                 sleep_for = tic_duration - elapsed
@@ -169,7 +176,8 @@ class DDAPipeline:
         episode_stats["wall_time"] = t_end - t_start
 
         # DM decision
-        perf_obs, trend_obs = self.estimator.estimate(episode_stats, self.actuator.current_skill)
+        perf_obs, trend_obs = self.estimator.estimate(
+            episode_stats, self.actuator.current_skill)
         action = self.dm.step(perf_obs, trend_obs)
         beliefs = self.dm.get_belief_summary()
 
@@ -223,6 +231,27 @@ class DDAPipeline:
         print(f"  State distribution: {dict(state_counts)}")
         flow_frac = state_counts.get("FLOW", 0) / len(self._session_log)
         print(f"  Flow fraction: {flow_frac:.0%}")
+
+    def reset_with_difficulty(self, skill: int, record_path: str = None):
+        """
+        Reset episode with specific difficulty level.
+        Used by proxy baseline collection.
+
+        Args:
+            skill: Doom skill level (1-5)
+            record_path: Optional .lmp recording path
+        """
+        self.game.set_doom_skill(skill)
+        self.actuator.current_skill = skill
+        self.collector.skill = skill
+        self.collector.reset()
+
+        if record_path:
+            self.game.new_episode(record_path)
+        else:
+            self.game.new_episode()
+
+        return self.game.get_state()
 
     def close(self):
         self.game.close()

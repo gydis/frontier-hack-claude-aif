@@ -1,5 +1,8 @@
 data
 _vizdoom*
+data
+_vizdoom*
 *.workspace
 context-docs/
 .claude/
+venv/
