@@ -1,3 +1,6 @@
 data
 _vizdoom*
+data
+_vizdoom*
 *.workspace
+venv/
