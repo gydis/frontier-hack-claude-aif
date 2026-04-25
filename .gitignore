@@ -6,3 +6,7 @@ _vizdoom*
 context-docs/
 .claude/
 venv/
+runs/
+scripts/__pycache__
+vizdoom_tracker/__pycache__
+src/__pycache__
