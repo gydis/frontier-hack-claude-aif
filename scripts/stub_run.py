@@ -24,6 +24,7 @@ from src.player_proxy import ModelCheckpointProxy
 def run_stub_episode(
     episode_idx: int, adapter, proxy, logger, use_real_env: bool,
     session_dir: str | None = None,
+    window_visible: bool = False,
 ) -> None:
     """Run one episode and log results."""
     difficulty = adapter.choose_difficulty()
@@ -31,7 +32,7 @@ def run_stub_episode(
     if use_real_env:
         from src.env_wrapper import DeathmatchEnvWrapper
 
-        env = DeathmatchEnvWrapper(window_visible=False)
+        env = DeathmatchEnvWrapper(window_visible=window_visible)
         env.reset(difficulty)
 
         done = False
@@ -95,27 +96,29 @@ def run_stub_episode(
 def main():
     parser = argparse.ArgumentParser(description="Stub end-to-end run")
     parser.add_argument("--real-env", action="store_true", help="Use real ViZDoom env")
+    parser.add_argument("--visible", action="store_true", help="Show game window (implies --real-env)")
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--config", type=str, help="Path to YAML config (optional)")
     args = parser.parse_args()
+    use_real_env = args.real_env or args.visible
 
     adapter = StubAdapter(bot_skill=3, num_bots=2)
     proxy = ModelCheckpointProxy("agents/deathmatch_shotgun.pth")
     logger = JsonlRunLogger("stub_run")
 
     # Session Parquet files go in a directory named after the run log (sans extension)
-    session_dir = os.path.splitext(logger.filepath)[0] if args.real_env else None
+    session_dir = os.path.splitext(logger.filepath)[0] if use_real_env else None
 
     print("\n=== Stub End-to-End Run ===")
     print(f"Episodes: {args.episodes}")
-    print(f"Real env: {args.real_env}")
+    print(f"Real env: {use_real_env}")
     print(f"Log file: {logger.filepath}")
     if session_dir:
         print(f"Sessions: {session_dir}/")
     print()
 
     for ep in range(args.episodes):
-        run_stub_episode(ep, adapter, proxy, logger, args.real_env, session_dir)
+        run_stub_episode(ep, adapter, proxy, logger, use_real_env, session_dir, args.visible)
 
     logger.close()
     print(f"\n=== Complete. Log written to {logger.filepath} ===")

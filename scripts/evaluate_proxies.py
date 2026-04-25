@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Evaluate player proxies against VizDoom difficulty levels and save calibration stats."""
-from src.env_wrapper import DeathmatchEnvWrapper
-from src.player_proxy import BuiltInBotProxy, ModelCheckpointProxy
 import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # isort:skip
+from src.env_wrapper import DeathmatchEnvWrapper
+from src.player_proxy import BuiltInBotProxy, ModelCheckpointProxy
 import json
 import argparse
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # isort:skip
 
 
 SCENARIO_CONFIGS = {
