@@ -16,10 +16,10 @@ from src.interfaces import PlayerProxy as PlayerProxyInterface
 
 
 class ArnoldDRQN(nn.Module):
-    def __init__(self):
+    def __init__(self, input_channels: int = 4, num_actions: int = 29):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=8, stride=4),
+            nn.Conv2d(input_channels, 32, kernel_size=8, stride=4),
             nn.ReLU(inplace=True),
             nn.Conv2d(32, 64, kernel_size=4, stride=2),
             nn.ReLU(inplace=True),
@@ -30,13 +30,15 @@ class ArnoldDRQN(nn.Module):
         self.sel_ammo_emb = nn.Embedding(301, 32)
 
         self.proj_game_features = nn.Sequential(
+            nn.Identity(),
             nn.Linear(4608, 512),
             nn.ReLU(inplace=True),
+            nn.Identity(),
             nn.Linear(512, 2),
         )
 
         self.rnn = nn.LSTM(input_size=4672, hidden_size=512, batch_first=True)
-        self.proj_action_scores = nn.Linear(512, 35)
+        self.proj_action_scores = nn.Linear(512, num_actions)
 
     def forward(self, image, health_idx, ammo_idx, hx=None):
         x = self.conv(image)
@@ -92,39 +94,50 @@ class ArnoldAgent:
                     action[cls.BUTTONS.index(button)] = 1
             return action
 
+        # Simplified action space - basic movements and attack
         cls.ACTION_SET = [
-            make_action(),
-            make_action(vzd.Button.ATTACK),
-            make_action(vzd.Button.MOVE_FORWARD),
-            make_action(vzd.Button.MOVE_BACKWARD),
+            make_action(),  # NOOP
             make_action(vzd.Button.MOVE_LEFT),
             make_action(vzd.Button.MOVE_RIGHT),
+            make_action(vzd.Button.MOVE_FORWARD),
+            make_action(vzd.Button.MOVE_BACKWARD),
             make_action(vzd.Button.TURN_LEFT),
             make_action(vzd.Button.TURN_RIGHT),
+            make_action(vzd.Button.ATTACK),
             make_action(vzd.Button.SPEED),
             make_action(vzd.Button.ATTACK, vzd.Button.MOVE_FORWARD),
             make_action(vzd.Button.ATTACK, vzd.Button.TURN_LEFT),
             make_action(vzd.Button.ATTACK, vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.MOVE_FORWARD, vzd.Button.SPEED),
-            make_action(vzd.Button.TURN_LEFT, vzd.Button.SPEED),
-            make_action(vzd.Button.TURN_RIGHT, vzd.Button.SPEED),
             make_action(vzd.Button.ATTACK, vzd.Button.MOVE_LEFT),
             make_action(vzd.Button.ATTACK, vzd.Button.MOVE_RIGHT),
-            make_action(vzd.Button.MOVE_FORWARD, vzd.Button.TURN_LEFT),
-            make_action(vzd.Button.MOVE_FORWARD, vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.STRAFE),
-            make_action(vzd.Button.STRAFE, vzd.Button.ATTACK),
         ]
+        # Extend if needed for track_1
+        while len(cls.ACTION_SET) < 35:
+            cls.ACTION_SET.append(make_action())
 
     def __init__(self, skill_level: float, model_path: str, exploration_rate: float = 0.0):
         self.skill_level = float(np.clip(skill_level, 0.0, 1.0))
         self.exploration_rate = float(np.clip(exploration_rate, 0.0, 1.0))
+        self.skill_random_rate = 0.35 * (1.0 - self.skill_level)
+        self.random_action_prob = float(
+            np.clip(self.exploration_rate + self.skill_random_rate, 0.0, 1.0))
+        self.frame_skip = int(
+            np.clip(round(1 + 3 * (1.0 - self.skill_level)), 1, 4))
         self._rng = np.random.RandomState(42)
         self._recurrent_state: Optional[tuple[torch.Tensor,
                                               torch.Tensor]] = None
+        self._persistent_action: Optional[list[int]] = None
+        self._persistence_counter = 0
+
+        # Detect model architecture from path
+        model_name = model_path.split('/')[-1]
+        if 'track1' in model_name or 'track_1' in model_name:
+            input_channels, num_actions = 3, 35
+        else:
+            input_channels, num_actions = 4, 29
 
         self.device = torch.device("cpu")
-        self.model = ArnoldDRQN().to(self.device)
+        self.model = ArnoldDRQN(input_channels=input_channels, num_actions=num_actions).to(self.device)
         self.model.eval()
         self._load_weights(model_path)
 
@@ -134,7 +147,12 @@ class ArnoldAgent:
     def _load_weights(self, model_path: str) -> None:
         try:
             state_dict = torch.load(model_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+            result = self.model.load_state_dict(state_dict, strict=False)
+            if result.missing_keys or result.unexpected_keys:
+                print(
+                    f"WARNING: checkpoint loaded with missing keys={result.missing_keys} "
+                    f"unexpected keys={result.unexpected_keys}"
+                )
         except Exception as exc:
             print(f"WARNING: Could not load checkpoint {model_path}: {exc}")
             self.model = None
@@ -147,46 +165,57 @@ class ArnoldAgent:
                     action[self.BUTTONS.index(button)] = 1
             return action
 
+        # Simplified action space
         type(self).ACTION_SET = [
-            make_action(),
-            make_action(vzd.Button.ATTACK),
-            make_action(vzd.Button.MOVE_FORWARD),
-            make_action(vzd.Button.MOVE_BACKWARD),
+            make_action(),  # NOOP
             make_action(vzd.Button.MOVE_LEFT),
             make_action(vzd.Button.MOVE_RIGHT),
+            make_action(vzd.Button.MOVE_FORWARD),
+            make_action(vzd.Button.MOVE_BACKWARD),
             make_action(vzd.Button.TURN_LEFT),
             make_action(vzd.Button.TURN_RIGHT),
+            make_action(vzd.Button.ATTACK),
             make_action(vzd.Button.SPEED),
             make_action(vzd.Button.ATTACK, vzd.Button.MOVE_FORWARD),
             make_action(vzd.Button.ATTACK, vzd.Button.TURN_LEFT),
             make_action(vzd.Button.ATTACK, vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.MOVE_FORWARD, vzd.Button.SPEED),
-            make_action(vzd.Button.TURN_LEFT, vzd.Button.SPEED),
-            make_action(vzd.Button.TURN_RIGHT, vzd.Button.SPEED),
             make_action(vzd.Button.ATTACK, vzd.Button.MOVE_LEFT),
             make_action(vzd.Button.ATTACK, vzd.Button.MOVE_RIGHT),
-            make_action(vzd.Button.MOVE_FORWARD, vzd.Button.TURN_LEFT),
-            make_action(vzd.Button.MOVE_FORWARD, vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.STRAFE),
-            make_action(vzd.Button.STRAFE, vzd.Button.ATTACK),
         ]
+        # Extend if needed
+        while len(type(self).ACTION_SET) < self.model.proj_action_scores.out_features:
+            type(self).ACTION_SET.append(make_action())
 
     def reset(self) -> None:
         self._recurrent_state = None
 
     def action_for_state(self, game_state: Any) -> list[int]:
-        if self._rng.rand() < self.exploration_rate or self.model is None or game_state is None:
+        if self.model is None or game_state is None:
             return self._random_action()
 
-        action_idx = self._infer_action(game_state)
-        if self._rng.rand() < self.exploration_rate:
-            return self._random_action()
-        return self.ACTION_SET[action_idx]
+        if self._persistence_counter > 0 and self._persistent_action is not None:
+            self._persistence_counter -= 1
+            return self._persistent_action
+
+        if self._rng.rand() < self.random_action_prob:
+            action = self._random_action()
+        else:
+            action_idx = self._infer_action(game_state)
+            action = self.ACTION_SET[action_idx]
+
+        # Force more aggressive behavior - if action has ATTACK, also add MOVE_FORWARD
+        if action[0] == 1:  # ATTACK button
+            action[6] = 1  # MOVE_FORWARD
+
+        self._persistent_action = action
+        self._persistence_counter = self.frame_skip - 1
+        return action
 
     def _random_action(self) -> list[int]:
         if not self.ACTION_SET:
             self._build_action_set()
-        return self.ACTION_SET[self._rng.randint(len(self.ACTION_SET))]
+        num_actions = self.model.proj_action_scores.out_features
+        return self.ACTION_SET[self._rng.randint(num_actions)]
 
     def _infer_action(self, game_state: Any) -> int:
         image, health_idx, ammo_idx = self._prepare_game_state(game_state)
@@ -201,6 +230,24 @@ class ArnoldAgent:
 
     def _prepare_game_state(self, game_state: Any):
         screen = np.asarray(game_state.screen_buffer, dtype=np.float32) / 255.0
+        if screen.ndim == 3:
+            if screen.shape[0] in (3, 4):
+                # already channel-first
+                pass
+            elif screen.shape[2] in (3, 4):
+                screen = np.transpose(screen, (2, 0, 1))
+            else:
+                raise ValueError(
+                    f"Unexpected screen buffer shape: {screen.shape}")
+        elif screen.ndim == 2:
+            screen = np.expand_dims(screen, 0)
+
+        # Only pad to 4 channels if model expects it (deathmatch models)
+        if screen.shape[0] == 3 and self.model.conv[0].in_channels == 4:
+            pad = np.zeros(
+                (1, screen.shape[1], screen.shape[2]), dtype=screen.dtype)
+            screen = np.concatenate((screen, pad), axis=0)
+
         image = torch.from_numpy(screen).unsqueeze(0)
 
         game_vars = np.asarray(game_state.game_variables, dtype=np.float32)

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Evaluate player proxies against VizDoom difficulty levels and save calibration stats."""
-
-from src.player_proxy import BuiltInBotProxy, ModelCheckpointProxy
 from src.env_wrapper import DeathmatchEnvWrapper
-import argparse
-import json
-import os
+from src.player_proxy import BuiltInBotProxy, ModelCheckpointProxy
 import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import os
+import json
+import argparse
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # isort:skip
 
 
 SCENARIO_CONFIGS = {
@@ -27,7 +25,7 @@ def run_proxy_eval(proxy, env, difficulty, episodes):
 
         done = False
         steps = 0
-        while not done and steps < 2000:
+        while not done and steps < 500:  # Reduced from 2000 for faster testing
             obs = env.get_state()
             action = proxy.act(obs)
             _, done = env.step(action)
@@ -43,6 +41,8 @@ def run_proxy_eval(proxy, env, difficulty, episodes):
         print(
             f"proxy={proxy.id} diff={difficulty} ep={ep} "
             f"kdr={stats.get('kdr', 0):.2f} "
+            f"frags={stats.get('final_frags', 0):.0f} "
+            f"deaths={stats.get('final_deaths', 0):.0f} "
             f"damage={stats.get('damagecount', 0):.0f}"
         )
     return records
@@ -57,6 +57,10 @@ def main():
                         choices=["builtin", "model"])
     parser.add_argument("--model-path", type=str,
                         help="Path to a pretrained .pth model checkpoint")
+    parser.add_argument("--skill-level", type=float, default=0.5,
+                        help="Skill level for the proxy or model [0.0-1.0]")
+    parser.add_argument("--exploration-rate", type=float, default=0.05,
+                        help="Exploration rate for the model proxy [0.0-1.0]")
     parser.add_argument("--difficulty-levels", default="1,3,5",
                         help="Comma-separated bot difficulty levels to evaluate")
     parser.add_argument("--episodes", type=int, default=5)
@@ -75,12 +79,15 @@ def main():
         config_path=cfg_path, window_visible=args.visible)
     proxy = None
     if args.proxy == "builtin":
-        proxy = BuiltInBotProxy(skill_level=0.5, exploration_rate=0.1)
+        proxy = BuiltInBotProxy(
+            skill_level=args.skill_level,
+            exploration_rate=args.exploration_rate,
+        )
     else:
         proxy = ModelCheckpointProxy(
             model_path=args.model_path,
-            skill_level=0.5,
-            exploration_rate=0.05,
+            skill_level=args.skill_level,
+            exploration_rate=args.exploration_rate,
         )
 
     difficulty_levels = [
