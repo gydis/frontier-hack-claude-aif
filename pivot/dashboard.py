@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
+from src.discretizer import discretize_stats  # Import your discretizer
 
 # Page Configuration
 st.set_page_config(page_title="VizDoom Live Analytics", layout="wide")
@@ -12,14 +13,22 @@ st.markdown("---")
 API_URL = "http://localhost:8000/data"
 
 # --- 1. INITIALIZE SESSION STATE ---
-# This keeps track of history across reruns
 if "accuracy_history" not in st.session_state:
     st.session_state.accuracy_history = []
 if "max_history_points" not in st.session_state:
-    st.session_state.max_history_points = 100  # Keep last 100 seconds of data
+    st.session_state.max_history_points = 100
 
 
-@st.fragment(run_every=1)  # Updated to 1s for smoother "live" feel
+def get_status_color(label):
+    """Helper to add some visual flair to labels."""
+    if label == "poor":
+        return f"🔴 {label.upper()}"
+    if label == "high":
+        return f"🟢 {label.upper()}"
+    return f"🔵 {label.upper()}"
+
+
+@st.fragment(run_every=1)
 def update_dashboard():
     try:
         response = requests.get(API_URL, timeout=0.5)
@@ -30,14 +39,10 @@ def update_dashboard():
 
             # --- 2. UPDATE HISTORY ---
             st.session_state.accuracy_history.append(current_acc)
-
-            # Prevent the list from growing infinitely (memory management)
             if len(st.session_state.accuracy_history) > st.session_state.max_history_points:
                 st.session_state.accuracy_history.pop(0)
 
             # --- 3. CALCULATE LIVE MEAN ---
-            # Using standard math:
-            # $\bar{x} = \frac{1}{n} \sum_{i=1}^{n} x_i$
             history_array = st.session_state.accuracy_history
             live_mean = sum(history_array) / \
                 len(history_array) if history_array else 0
@@ -49,7 +54,6 @@ def update_dashboard():
             with m1:
                 st.metric("Current Accuracy", f"{current_acc:.1%}")
             with m2:
-                # Show the live mean calculation
                 st.metric("Rolling Avg Accuracy", f"{live_mean:.1%}")
             with m3:
                 st.metric("Data Points Collected", len(history_array))
@@ -57,7 +61,6 @@ def update_dashboard():
             # --- 5. LIVE GRAPH ---
             st.subheader("Accuracy Trend (Live)")
             if len(history_array) > 1:
-                # Convert history to a DataFrame for Streamlit's chart
                 chart_data = pd.DataFrame(history_array, columns=["Accuracy"])
                 st.line_chart(chart_data, height=250)
             else:
@@ -65,7 +68,30 @@ def update_dashboard():
 
             st.markdown("---")
 
-            # --- 6. AGENT CONFIGS ---
+            # --- 6. DISCRETIZED STATUS ---
+            st.header("🧠 Discretized Player Status")
+            # Run the discretizer on current features
+            discrete_data = discretize_stats(features)
+
+            d1, d2, d3, d4 = st.columns(4)
+            with d1:
+                st.write("**Accuracy**")
+                st.markdown(get_status_color(discrete_data.get("accuracy")))
+            with d2:
+                st.write("**KDR**")
+                st.markdown(get_status_color(discrete_data.get("kdr")))
+            with d3:
+                st.write("**Frags/Min**")
+                st.markdown(get_status_color(
+                    discrete_data.get("frags_per_minute")))
+            with d4:
+                st.write("**Damage Ratio**")
+                st.markdown(get_status_color(
+                    discrete_data.get("damage_ratio")))
+
+            st.markdown("---")
+
+            # --- 7. AGENT CONFIGS ---
             st.header("⚙️ Agent Updated Configs")
             agent_decision = data.get("llm_output", "{}")
             st.code(agent_decision, language="json")
