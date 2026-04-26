@@ -1,1 +1,0 @@
-{"episode_idx": 0, "difficulty": {"bot_skill": 3}, "raw_stats": {"arr": [1.0, 2.0, 3.0]}, "obs_aif": {}, "belief": null, "proxy_id": "test", "adapter_type": "test", "timestamp": "2026-04-25T14:13:32.422779", "experiment_name": "numpy_test"}

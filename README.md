@@ -14,6 +14,14 @@ This project demonstrates a dynamic difficulty adjustment system within a ViZDoo
 - `scripts/run_llm_session.py`: Main game loop and ViZDoom environment manager.
 - `data_dashboard.json`: Local log file where all session results are stored.
 
+## Setup
+
+Before running the application, create a `.env` file in the **root directory** of the project and add your Anthropic API key:
+
+```env
+ANTHROPIC_API_KEY=your_api_key_here
+```
+
 ## Execution Instructions
 
 Run each command in a separate terminal window:
