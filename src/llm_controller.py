@@ -13,6 +13,10 @@ import re
 from pathlib import Path
 
 import anthropic
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_TARGET = "keep player performance in the 'normal' band"
