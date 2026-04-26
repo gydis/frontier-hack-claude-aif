@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 import vizdoom as vzd
 
 from src.actuator import DifficultyActuator
@@ -112,6 +113,38 @@ class DDAPipeline:
 
     # ------------------------------------------------------------------
 
+    def _send_stats_to_dashboard(self):
+        """Calculates current features and POSTs them to the dashboard API."""
+        try:
+            # 1. Get the current raw data from the recorder
+            df = self.recorder.to_dataframe()
+
+            # 2. Convert to the feature format your dashboard expects
+            # We reuse your existing stats_from_df function
+            current_features = stats_from_df(
+                df,
+                self.recorder.episode_tic,
+                self.actuator.current_skill,
+                self.scenario_name
+            )
+
+            # 3. Prepare the payload
+            payload = {
+                "features": current_features,
+                "last_updated": datetime.now().strftime("%H:%M:%S")
+                # The 'llm_output' (Agent Configs) is usually updated by your
+                # Controller script, so we just send features here.
+            }
+
+            # 4. Push to your FastAPI/Flask server
+            # Note: Use a short timeout so a network lag doesn't freeze your game!
+            requests.post("http://localhost:8000/update",
+                          json=payload, timeout=0.01)
+
+        except Exception as e:
+            # We silent the error so the game doesn't crash if the dashboard is off
+            pass
+
     def _run_episode(self, ep_idx: int) -> dict:
         rec_path = ""
         if self.record_dir:
@@ -132,7 +165,7 @@ class DDAPipeline:
 
         t_start = time.time()
         mid_ep_bot_added = False
-
+        last_api_update = t_start
         tic_duration = 1.0 / 35.0
         _queued_respawn = False
         while not self.game.is_episode_finished():
@@ -143,22 +176,31 @@ class DDAPipeline:
                 try:
                     is_dead = bool(self.game.get_game_variable(
                         vzd.GameVariable.DEAD))
-                except Exception:
+                except:
                     pass
 
             if is_dead:
                 if not _queued_respawn:
-                    self.game.respawn_player()   # queue respawn immediately
+                    self.game.respawn_player()
                     _queued_respawn = True
-                # With ticrate=10000 advance_action is non-blocking, so no sleep
-                # needed here — the loop races through the countdown at ~3000 tics/s.
                 self.game.advance_action(1)
+                # Note: No sleep here to skip death wait quickly as per your original logic
             else:
                 _queued_respawn = False
                 t0 = time.time()
-                # pumps SDL events; SPECTATOR ignores the action
+
+                # --- STEP THE GAME (ONLY ONCE) ---
                 self.game.advance_action(1)
                 self.recorder.record(self.game)
+
+                # --- API UPDATE LOGIC ---
+                current_time = time.time()
+                if current_time - last_api_update >= 1.0:
+                    # We use a separate thread or very short timeout to prevent game lag
+                    self._send_stats_to_dashboard()
+                    last_api_update = current_time
+
+                # --- FRAME RATE CAP ---
                 elapsed = time.time() - t0
                 sleep_for = tic_duration - elapsed
                 if sleep_for > 0:
@@ -166,12 +208,16 @@ class DDAPipeline:
 
             # Mid-episode dominance check (only before 60s mark)
             if not mid_ep_bot_added:
-                w = stats_from_df(self.recorder.to_dataframe(), self.recorder.episode_tic,
-                                  self.actuator.current_skill, self.scenario_name)
-                if self.actuator.check_mid_episode_dominance(w):
-                    self.game.send_game_command("addbot")
-                    self.actuator.num_bots += 1
-                    mid_ep_bot_added = True
+                # Optimized: Only check this once every few seconds or use a tic counter
+                # to avoid heavy dataframe conversion every single tic
+                if self.recorder.episode_tic % 35 == 0:
+                    df = self.recorder.to_dataframe()
+                    w = stats_from_df(df, self.recorder.episode_tic,
+                                      self.actuator.current_skill, self.scenario_name)
+                    if self.actuator.check_mid_episode_dominance(w):
+                        self.game.send_game_command("addbot")
+                        self.actuator.num_bots += 1
+                        mid_ep_bot_added = True
 
         t_end = time.time()
         df = self.recorder.to_dataframe()
