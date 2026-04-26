@@ -94,24 +94,39 @@ class ArnoldAgent:
                     action[cls.BUTTONS.index(button)] = 1
             return action
 
-        # Simplified action space - basic movements and attack
+        # Full 29-action space matching Arnold model training
         cls.ACTION_SET = [
-            make_action(),  # NOOP
-            make_action(vzd.Button.MOVE_LEFT),
-            make_action(vzd.Button.MOVE_RIGHT),
-            make_action(vzd.Button.MOVE_FORWARD),
-            make_action(vzd.Button.MOVE_BACKWARD),
-            make_action(vzd.Button.TURN_LEFT),
-            make_action(vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.ATTACK),
-            make_action(vzd.Button.SPEED),
-            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_FORWARD),
-            make_action(vzd.Button.ATTACK, vzd.Button.TURN_LEFT),
-            make_action(vzd.Button.ATTACK, vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_LEFT),
-            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_RIGHT),
+            make_action(),  # 0: NOOP
+            make_action(vzd.Button.ATTACK),  # 1
+            make_action(vzd.Button.SPEED),  # 2
+            make_action(vzd.Button.MOVE_FORWARD),  # 3
+            make_action(vzd.Button.MOVE_BACKWARD),  # 4
+            make_action(vzd.Button.MOVE_LEFT),  # 5
+            make_action(vzd.Button.MOVE_RIGHT),  # 6
+            make_action(vzd.Button.TURN_LEFT),  # 7
+            make_action(vzd.Button.TURN_RIGHT),  # 8
+            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_FORWARD),  # 9
+            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_BACKWARD),  # 10
+            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_LEFT),  # 11
+            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_RIGHT),  # 12
+            make_action(vzd.Button.ATTACK, vzd.Button.TURN_LEFT),  # 13
+            make_action(vzd.Button.ATTACK, vzd.Button.TURN_RIGHT),  # 14
+            make_action(vzd.Button.SPEED, vzd.Button.MOVE_FORWARD),  # 15
+            make_action(vzd.Button.SPEED, vzd.Button.MOVE_BACKWARD),  # 16
+            make_action(vzd.Button.SPEED, vzd.Button.MOVE_LEFT),  # 17
+            make_action(vzd.Button.SPEED, vzd.Button.MOVE_RIGHT),  # 18
+            make_action(vzd.Button.ATTACK, vzd.Button.SPEED, vzd.Button.MOVE_FORWARD),  # 19
+            make_action(vzd.Button.ATTACK, vzd.Button.SPEED, vzd.Button.MOVE_BACKWARD),  # 20
+            make_action(vzd.Button.ATTACK, vzd.Button.SPEED, vzd.Button.TURN_LEFT),  # 21
+            make_action(vzd.Button.ATTACK, vzd.Button.SPEED, vzd.Button.TURN_RIGHT),  # 22
+            make_action(vzd.Button.TURN_LEFT, vzd.Button.MOVE_FORWARD),  # 23
+            make_action(vzd.Button.TURN_RIGHT, vzd.Button.MOVE_FORWARD),  # 24
+            make_action(vzd.Button.ATTACK, vzd.Button.TURN_LEFT, vzd.Button.MOVE_FORWARD),  # 25
+            make_action(vzd.Button.ATTACK, vzd.Button.TURN_RIGHT, vzd.Button.MOVE_FORWARD),  # 26
+            make_action(vzd.Button.SPEED, vzd.Button.TURN_LEFT, vzd.Button.MOVE_FORWARD),  # 27
+            make_action(vzd.Button.SPEED, vzd.Button.TURN_RIGHT, vzd.Button.MOVE_FORWARD),  # 28
         ]
-        # Extend if needed for track_1
+        # Extend if needed for track_1 (35 actions)
         while len(cls.ACTION_SET) < 35:
             cls.ACTION_SET.append(make_action())
 
@@ -158,33 +173,8 @@ class ArnoldAgent:
             self.model = None
 
     def _build_action_set(self) -> None:
-        def make_action(*buttons: int) -> list[int]:
-            action = [0] * len(self.BUTTONS)
-            for button in buttons:
-                if button in self.BUTTONS:
-                    action[self.BUTTONS.index(button)] = 1
-            return action
-
-        # Simplified action space
-        type(self).ACTION_SET = [
-            make_action(),  # NOOP
-            make_action(vzd.Button.MOVE_LEFT),
-            make_action(vzd.Button.MOVE_RIGHT),
-            make_action(vzd.Button.MOVE_FORWARD),
-            make_action(vzd.Button.MOVE_BACKWARD),
-            make_action(vzd.Button.TURN_LEFT),
-            make_action(vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.ATTACK),
-            make_action(vzd.Button.SPEED),
-            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_FORWARD),
-            make_action(vzd.Button.ATTACK, vzd.Button.TURN_LEFT),
-            make_action(vzd.Button.ATTACK, vzd.Button.TURN_RIGHT),
-            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_LEFT),
-            make_action(vzd.Button.ATTACK, vzd.Button.MOVE_RIGHT),
-        ]
-        # Extend if needed
-        while len(type(self).ACTION_SET) < self.model.proj_action_scores.out_features:
-            type(self).ACTION_SET.append(make_action())
+        # Use the class method to build consistent action set
+        type(self).ensure_action_set()
 
     def reset(self) -> None:
         self._recurrent_state = None
@@ -201,11 +191,7 @@ class ArnoldAgent:
             action = self._random_action()
         else:
             action_idx = self._infer_action(game_state)
-            action = self.ACTION_SET[action_idx]
-
-        # Force more aggressive behavior - if action has ATTACK, also add MOVE_FORWARD
-        if action[0] == 1:  # ATTACK button
-            action[6] = 1  # MOVE_FORWARD
+            action = list(self.ACTION_SET[action_idx])  # Copy to avoid mutating ACTION_SET
 
         self._persistent_action = action
         self._persistence_counter = self.frame_skip - 1
@@ -214,8 +200,8 @@ class ArnoldAgent:
     def _random_action(self) -> list[int]:
         if not self.ACTION_SET:
             self._build_action_set()
-        num_actions = self.model.proj_action_scores.out_features
-        return self.ACTION_SET[self._rng.randint(num_actions)]
+        num_actions = min(self.model.proj_action_scores.out_features, len(self.ACTION_SET))
+        return list(self.ACTION_SET[self._rng.randint(num_actions)])
 
     def _infer_action(self, game_state: Any) -> int:
         image, health_idx, ammo_idx = self._prepare_game_state(game_state)
