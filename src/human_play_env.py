@@ -41,7 +41,7 @@ class HumanPlayEnvWrapper:
 
     def __init__(
         self,
-        config_path: str = "config/dda_deathmatch.cfg",
+        config_path: str = "config/dda-deathmatch.cfg",
         window_visible: bool = True,
     ):
         self._config_path = config_path
