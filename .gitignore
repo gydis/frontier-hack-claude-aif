@@ -5,5 +5,5 @@ _vizdoom*
 *.workspace
 context-docs/
 .claude/
-.venv/
+venv/
 
